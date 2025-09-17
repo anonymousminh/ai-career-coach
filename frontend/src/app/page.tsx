@@ -34,6 +34,77 @@ export default function Home() {
     setJobPostingContent(event.target.value);
   };
 
+  const handleSubmit = async () => {
+    if (!resumeFile || !jobPostingText) {
+      alert("Please upload a resume and paste a job posting.");
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("resumeFile", resumeFile);
+    formData.append("jobPostingText", jobPostingText);
+
+    // Read resume file as ArrayBuffer, then convert to Base64
+    const reader = new FileReader();
+    reader.readAsArrayBuffer(resumeFile);
+
+    reader.onload = async (e) => {
+      if (e.target && e.target.result) {
+        const arrayBuffer = e.target.result as ArrayBuffer;
+        const base64String = Buffer.from(arrayBuffer).toString("base64");
+
+        try {
+          const response = await fetch("http://localhost:5000/upload_resume", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              resumeFileBase64: base64String,
+              resumeFileName: resumeFile.name,
+              jobPostingText: jobPostingText,
+            }),
+          });
+
+          if (response.ok) {
+            const data = await response.json();
+            alert(`Success: $({data.message}\nS3 URL:${data.s3Url})`);
+            console.log("S3 URL:", data.s3Url);
+            console.log("Job Posting Text:", data.jobPostingText.substring(0, 500) + "...");
+          } else {
+            const errorData = await response.json();
+            alert(`Error: ${errorData.error}`);
+            console.log(errorData);
+          }
+        } catch (error) {
+          console.error("Failed to send data to backend:", error);
+          alert("An error occurred while sending data to backend");
+        }
+      }
+    };
+
+
+    // try {
+    //   const response = await fetch("/api/process-resume", {
+    //     method: "POST",
+    //     body: formData,
+    //   });
+
+    //   if (response.ok) {
+    //     const data = await response.json();
+    //     alert(`Success: ${data.message}`);
+    //     console.log(data);
+    //   } else {
+    //     const errorData = await response.json();
+    //     alert(`Error: ${errorData.error}`);
+    //     console.log(errorData);
+    //   }
+    // } catch (error) {
+    //   console.error("Failed to send data:", error);
+    //   alert("An error occured while sending data.")
+    // }
+  };
+
   return (
     <main className="flex min-h-screen flex-col items-center justify-between p-24">
       <div className="z-10 max-w-5xl w-full items-center justify-between font-mono text-sm lg:flex">
@@ -94,6 +165,12 @@ export default function Home() {
             Paste the job posting text here.
           </p>
         </div>
+      </div>
+
+      <div className="mt-8 w-full flex justify-center">
+        <button onClick={handleSubmit} className="px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50">
+          Analyze Resume
+        </button>
       </div>
 
       <div className="mt-16 grid gap-8 lg:max-w-5xl lg:w-full lg:grid-cols-2">
