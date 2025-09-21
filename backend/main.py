@@ -3,8 +3,9 @@ from flask_cors import CORS
 import base64
 import os
 import boto3
-from botocore.exceptions import NoCredentialsError
+from botocore.exceptions import NoCredentialsError, ClientError
 from dotenv import load_dotenv
+from parser_utils import parse_document
 
 # Load environment variables from .env file
 load_dotenv()
@@ -53,6 +54,45 @@ def upload_resume_endpoint():
         return jsonify({"error": "AWS credentials not available"}), 500
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    
+
+app.route("/parse_s3_document", method=["POST"])
+def parse_s3_document_endpoint():
+    data = request.json
+    if not data:
+        return jsonify({"error": "Invalid JSON"}), 400
+    
+    s3_url = data.get("s3Url")
+    resume_file_type = data.get("resumeFile")
+    job_posting_text = data.get("jobPostingText")
+
+    if not s3_url or not resume_file_type or not job_posting_text:
+        return jsonify({"error": "Missing S3 URL, resume file type, or job posting text"}), 400
+    
+    try:
+        path_parts = s3_url.split("/")
+        bucket_name_from_url = path_parts[2].split(".")[0]
+        s3_key = "/".join(path_parts[3:])
+
+        # Download file from S3
+        response = s3_client.get_object(Bucket=bucket_name_from_url, Key=s3_key)
+        resume_bytes = response["Body"].read()
+
+        # Parse the document
+        parsed_resume_text = parse_document(resume_bytes, resume_file_type)
+
+        return jsonify({
+            "parsedResumeText": parsed_resume_text,
+            "parsedJobPostingText": job_posting_text
+        })
+    except ClientError as e:
+        if e.response["Error"]["Code"] == "NoSuchKey":
+            return jsonify({"error": "File not found in S3"}), 400
+        
+        return jsonify({"error": str(e)}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 
 if __name__ == "__main__":
     app.run(debug=True, port=5000)
