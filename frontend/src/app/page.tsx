@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import SuggestionCard from "@/components/features/SuggestionCard";
 import ResumePreview from "@/components/features/SuggestionCard";
 import { read } from "fs";
+import { error } from "console";
 
 
 export default function Home() {
@@ -40,11 +41,7 @@ export default function Home() {
       return;
     }
 
-    const formData = new FormData();
-    formData.append("resumeFile", resumeFile);
-    formData.append("jobPostingText", jobPostingText);
-
-    // Read resume file as ArrayBuffer, then convert to Base64
+    // Read resume file as ArrayBuffer, then convert to Base64 for S3 upload
     const reader = new FileReader();
     reader.readAsArrayBuffer(resumeFile);
 
@@ -54,7 +51,8 @@ export default function Home() {
         const base64String = Buffer.from(arrayBuffer).toString("base64");
 
         try {
-          const response = await fetch("http://localhost:5000/upload_resume", {
+          // Step 1: Upload resume to S3 via backend endpoint
+          const uploadResponse = await fetch("http://localhost:5000/upload_resume", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -62,19 +60,48 @@ export default function Home() {
             body: JSON.stringify({
               resumeFileBase64: base64String,
               resumeFileName: resumeFile.name,
+              resumeFileType: resumeFile.type,
               jobPostingText: jobPostingText,
             }),
           });
 
-          if (response.ok) {
-            const data = await response.json();
-            alert(`Success: $({data.message}\nS3 URL:${data.s3Url})`);
-            console.log("S3 URL:", data.s3Url);
-            console.log("Job Posting Text:", data.jobPostingText.substring(0, 500) + "...");
+          if (!uploadResponse.ok) {
+            const errorData = await uploadResponse.json();
+            alert(`Error uploading to S3: ${errorData.error}`);
+            console.error(errorData);
+            return;
+          }
+
+          const uploadData = await uploadResponse.json();
+          const s3Url = uploadData.s3Url;
+          console.log("File uploaded to S3", s3Url);
+
+          // Step 2: Call parsing endpoint with S3 URL and job posting text
+          const parseResponse = await fetch("http://localhost:5000/parse_s3_documents", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              s3Url: s3Url,
+              resumeFileType: resumeFile.type,
+              jobPostingText: jobPostingText
+            }),
+          });
+
+          if (parseResponse.ok){
+            const parsedData = await parseResponse.json();
+            alert(`Success: Data parsed!`);
+            console.log("Parsed Resume:", parsedData.parsedResumeText.substring(0, 500) + "...");
+            console.log("Parsed Job Posting:", parsedData.parsedJobPostingText.substring(0, 500) + "...");
+
+            setResumeContent(parsedData.parsedResumeText);
+            setJobPostingContent(parsedData.parsedJobPostingText);
+
           } else {
-            const errorData = await response.json();
-            alert(`Error: ${errorData.error}`);
-            console.log(errorData);
+            const errorData = await parseResponse.json();
+            alert(`Error parsing document: ${errorData.error}`);
+            console.error(errorData);
           }
         } catch (error) {
           console.error("Failed to send data to backend:", error);
@@ -84,25 +111,7 @@ export default function Home() {
     };
 
 
-    // try {
-    //   const response = await fetch("/api/process-resume", {
-    //     method: "POST",
-    //     body: formData,
-    //   });
-
-    //   if (response.ok) {
-    //     const data = await response.json();
-    //     alert(`Success: ${data.message}`);
-    //     console.log(data);
-    //   } else {
-    //     const errorData = await response.json();
-    //     alert(`Error: ${errorData.error}`);
-    //     console.log(errorData);
-    //   }
-    // } catch (error) {
-    //   console.error("Failed to send data:", error);
-    //   alert("An error occured while sending data.")
-    // }
+    
   };
 
   return (
